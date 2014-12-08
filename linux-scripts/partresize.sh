@@ -15,9 +15,18 @@
 ########
 
 usage() {
-  echo -e "Usage:\n$0 [-p <LVM physical volume>] [-l <LVM logical volume>] [-f]\n\nOptions:\n -p physical LVM volume device to extend (check pvdisplay)\n -l logical LVM volume to extend (check lvdisplay)\n -f force extending without a disk rescan. Use this if the OS has detected the enlarged disk already, otherwise we first check whether the underlying disk is larger after a SCSI rescan\n\nExample:\n./lvmresize.sh -p /dev/sda2 -l /dev/VolGroup/lv_root -f" 1>&2
+  echo "Usage:
+$0 [-p <LVM physical volume>] [-l <LVM logical volume>] [-f]
+ 
+Options:
+ -p physical LVM volume device to extend (check pvdisplay)
+ -l logical LVM volume to extend (check lvdisplay)
+ -f force extending without a disk rescan. Use this if the OS has detected the enlarged disk already, otherwise we first check whether the underlying disk is larger after a SCSI rescan
+    
+Example:
+./lvmresize.sh -p /dev/sda2 -l /dev/VolGroup/lv_root -f" 1>&2
   exit 1
-}
+} 
 
 extenddisk_parted() {
   # Use parted because fdisk behavior can vary between OSes and scripting fdisk is non-deterministic.
