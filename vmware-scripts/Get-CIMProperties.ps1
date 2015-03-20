@@ -118,7 +118,7 @@ function Get-CIMProperties {
   }
  
   #Build the HTTP POST Request with all custom headers
-  $Request = [System.Net.HttpWebRequest]::CreateHttp($URI)
+  $Request = [System.Net.HttpWebRequest]::Create($URI)
   $Request.Method = 'POST'
   $Request.ContentType = 'application/xml; charset="utf-8"'
   $Headers.Keys | ForEach-Object { $Request.Headers.Add($_, $Headers[$_]) }
