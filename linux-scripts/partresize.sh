@@ -7,10 +7,6 @@
 # By default it rescans the SCSI bus to check a change in disk size if the disk was hot-extended, which is easy with VMs, and only then proceeds.
 # If the extended disk size is recognized by the OS already, you can force resizing with the -f flag.
 #
-# It is recommended you backup the boot sector of your disk before as a safety measure with something like the following:
-# # dd if=/dev/sda of=sda_mbr_backup.mbr bs=512 count=1 
-# # sfdisk -d /dev/sda > sda_mbr_backup.bak
-#
 # Github: https://github.com/alpacacode/Homebrewn-Scripts
 ########
 
@@ -24,24 +20,41 @@ Options:
  -f force extending without a disk rescan. Use this if the OS has detected the enlarged disk already, otherwise we first check whether the underlying disk is larger after a SCSI rescan
     
 Example:
-./lvmresize.sh -p /dev/sda2 -l /dev/VolGroup/lv_root -f" 1>&2
+./lvmresize.sh -p /dev/sda2 -l /dev/VolGroup/lv_root -f
+ 
+It is highly recommended you backup the boot sector of your disk before as a safety measure with something like the following:
+# dd if=/dev/sda of=sda_mbr_backup.mbr bs=512 count=1 
+# sfdisk -d /dev/sda > sda_mbr_backup.bak
+ 
+You can restore the partition table then like this:
+# dd if=sda_mbr_backup.mbr of=/dev/sda bs=512 count=1
+# sfdisk /dev/sda < sda_mbr_backup.bak --force" 1>&2
   exit 1
 } 
 
 extenddisk_parted() {
   # Use parted because fdisk behavior can vary between OSes and scripting fdisk is non-deterministic.
-  echo -e "\nThis will now extend partition number $partitionnum on disk $disk using start sector $startsector.\n"
+  # Using parted resizepart would be easer, but RHEL/CentOS6 parted doesn't support resizepart
+  echo -e "\nThis will now extend partition number $partitionnum on disk $disk using start sector $startsector.\nWARNING: Make sure you backup your boot sector prior to this."
   read -r -p "Are you sure? [y/N] " response
   response=${response,,} # tolower 
   if [[ $response =~ ^(yes|y)$ ]]
   then
+    echo -e "\n+++Current partition layout of $disk:+++"
     parted $disk --script unit s print
-    parted $disk --script rm $partitionnum
-    # The filesystem used here is irrelevant because we will set the partition to LVM next.
-    parted $disk --script "mkpart primary ext2 ${startsector}s -1s"
+    if [ $logical == 1 ]
+    then
+      parted $disk --script rm $ext_partitionnum
+      parted $disk --script "mkpart extended ${ext_startsector}s -1s"
+      parted $disk --script "set $ext_partitionnum lba off"
+      parted $disk --script "mkpart logical ext2 ${startsector}s -1s"
+    else
+      parted $disk --script rm $partitionnum
+      parted $disk --script "mkpart primary ext2 ${startsector}s -1s"
+    fi
     parted $disk --script set $partitionnum lvm on
+    echo -e "\n\n+++New partition layout of $disk:+++"
     parted $disk --script unit s print
-
     # The 2nd script to expand the filesystem will be automatically executed on the next reboot.
     echo "#!/bin/bash
 #Extend Physical Volume first
@@ -72,9 +85,11 @@ chmod -x \$0" > /root/fsresize.sh
 resizefs_rclocal() {
   # Resize the filesystem using a script in rc.local if the OS run with sysvinit.
   echo "#Cleanup rc.local again
-sed -i -e \"/\/root\/fsresize\.sh/d\" /etc/rc.d/rc.local" >> /root/fsresize.sh
+sed -i /etc/rc.local -e '/\/root\/fsresize\.sh/d' --follow-symlinks
+sed -i /etc/rc.local -re 's/^#(exit 0)$/\1/' --follow-symlinks" >> /root/fsresize.sh
   
-  echo "/root/fsresize.sh" >> /etc/rc.d/rc.local
+  sed -i /etc/rc.local -re 's/^(exit 0)$/#\1/' --follow-symlinks
+  echo "/root/fsresize.sh" >> /etc/rc.local
 }
 
 resizefs_systemd() {
@@ -118,11 +133,16 @@ then
   usage
 fi
 
+command -v fdisk >/dev/null 2>&1 && command -v parted >/dev/null 2>&1 && command -v pvresize >/dev/null 2>&1 || {
+  echo -e "Error: Some of the required utilities (fdisk, parted, lvm tools etc) don't seem to be installed on this system.  Aborting.\n" >&2
+  exit 1
+}
+
 # Check if a valid LVM physical volume was supplied by verifying the pvdisplay exit code ($?).
 pvdisplay $p > /dev/null
 if [ $? != 0 ] || ( ! (file $p | grep -q "block special"))
 then
-  echo -e "Error: $p does not look like a block device or LVM physical volume.\n"
+  echo -e "Error: $p does not look like a block device or LVM physical volume. Aborting.\n"
   usage
 fi
 
@@ -130,15 +150,34 @@ fi
 lvdisplay $l > /dev/null
 if [ $? != 0 ]
 then
-  echo -e "Error: $l does not look like a LVM logical volume.\n"
+  echo -e "Error: $l does not look like a LVM logical volume. Aborting.\n"
   usage
 fi
 
 # Fill variables for later use.
-disk=$(echo $p | rev | cut -c 2- | rev)
-diskshort=$(echo $disk | grep -Po '[^\/]+$')
-partitionnum=$(echo $p | grep -Po '\d$')
+disk=$(echo $p | rev | cut -c 2- | rev) # /dev/sda
+diskshort=$(echo $disk | grep -Po '[^\/]+$') # sda
+partitionnum=$(echo $p | grep -Po '\d$') # 2
 startsector=$(fdisk -u -l $disk | grep $p | awk '{print $2}')
+
+# Detect LVM on logical/extended partition
+layout=$(parted $disk --script unit s print)
+if grep -Pq "^\s$partitionnum\s+.+?logical.+$" <<< "$layout"
+then
+  echo -e "Detected LVM residing on a logical partition.\n"
+  logical=1
+  ext_partitionnum=$(parted $disk --script unit s print | grep extended | grep -Po '^\s\d\s' | tr -d ' ')
+  ext_startsector=$(parted $disk --script unit s print | grep extended | awk '{print $2}' | tr -d 's')
+else
+  logical=0
+fi
+
+parted $disk --script unit s print | if ! grep -Pq "^\s$partitionnum\s+.+?[^,]+?lvm$"
+then
+  echo -e "Error: $p seems to have some flags other than the lvm flag set. Other flags are not supported."
+  usage
+fi
+
 if ! (fdisk -u -l $disk | grep $disk | tail -1 | grep $p | grep -q "Linux LVM")
 then
   echo -e "Error: $p is not the last LVM volume on disk $disk. Cannot expand.\n"
