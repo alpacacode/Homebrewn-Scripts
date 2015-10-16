@@ -13,32 +13,31 @@
 usage() {
   echo "Usage:
 $0 [-p <LVM physical volume>] [-l <LVM logical volume>] [-f]
- 
+
 Options:
  -p physical LVM volume device to extend (check pvdisplay)
  -l logical LVM volume to extend (check lvdisplay)
  -f force extending without a disk rescan. Use this if the OS has detected the enlarged disk already, otherwise we first check whether the underlying disk is larger after a SCSI rescan
-    
+
 Example:
 ./lvmresize.sh -p /dev/sda2 -l /dev/VolGroup/lv_root -f
- 
+
 It is highly recommended you backup the boot sector of your disk before as a safety measure with something like the following:
-# dd if=/dev/sda of=sda_mbr_backup.mbr bs=512 count=1 
+# dd if=/dev/sda of=sda_mbr_backup.mbr bs=512 count=1
 # sfdisk -d /dev/sda > sda_mbr_backup.bak
- 
+
 You can restore the partition table then like this:
 # dd if=sda_mbr_backup.mbr of=/dev/sda bs=512 count=1
 # sfdisk /dev/sda < sda_mbr_backup.bak --force" 1>&2
   exit 1
-} 
+}
 
 extenddisk_parted() {
   # Use parted because fdisk behavior can vary between OSes and scripting fdisk is non-deterministic.
   # Using parted resizepart would be easer, but RHEL/CentOS6 parted doesn't support resizepart
   echo -e "\nThis will now extend partition number $partitionnum on disk $disk using start sector $startsector.\nWARNING: Make sure you backup your boot sector prior to this."
   read -r -p "Are you sure? [y/N] " response
-  response=${response,,} # tolower 
-  if [[ $response =~ ^(yes|y)$ ]]
+  if [[ $response =~ ^([yY][eE][sS]|[yY])$ ]]
   then
     echo -e "\n+++Current partition layout of $disk:+++"
     parted $disk --script unit s print
@@ -71,7 +70,7 @@ chmod -x \$0" > /root/fsresize.sh
     else
       resizefs_rclocal
     fi
-    
+
     echo -e "Done. The system will reboot automatically in 15 seconds and resize the filesystem during reboot.\n"
     sleep 15
     # Reboot is necessary in most cases for the kernel to read the new partition table.
@@ -87,7 +86,7 @@ resizefs_rclocal() {
   echo "#Cleanup rc.local again
 sed -i /etc/rc.local -e '/\/root\/fsresize\.sh/d' --follow-symlinks
 sed -i /etc/rc.local -re 's/^#(exit 0)$/\1/' --follow-symlinks" >> /root/fsresize.sh
-  
+
   sed -i /etc/rc.local -re 's/^(exit 0)$/#\1/' --follow-symlinks
   echo "/root/fsresize.sh" >> /etc/rc.local
 }
@@ -97,7 +96,7 @@ resizefs_systemd() {
   echo "#Cleanup systemd autostart script again.
 systemctl disable fsresize.service
 rm -f /etc/systemd/system/fsresize.service" >> /root/fsresize.sh
-  
+
   echo "[Unit]
 Description=Filesystem resize script for LVM volume $l
 
@@ -172,7 +171,7 @@ else
   logical=0
 fi
 
-parted $disk --script unit s print | if ! grep -Pq "^\s$partitionnum\s+.+?[^,]+?lvm$"
+parted $disk --script unit s print | if ! grep -Pq "^\s$partitionnum\s+.+?[^,]+?lvm\s*$"
 then
   echo -e "Error: $p seems to have some flags other than the lvm flag set. Other flags are not supported."
   usage
@@ -192,7 +191,7 @@ then
   ls /sys/class/scsi_host/host*/scan | while read path; do echo "- - -" > $path; done
   newsize=$(cat /sys/block/${diskshort}/size)
 
-  # Check if the disk is larger now and proceed with the partition expansion if it is. 
+  # Check if the disk is larger now and proceed with the partition expansion if it is.
   if [ $oldsize -lt $newsize ]
   then
     echo -e "Underlying disk $disk is larger now.\n"
