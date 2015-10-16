@@ -7,7 +7,7 @@ function Get-CIMProperties {
   This function can be used to query CIM information through a generic WBEM Web Request from an ESXi or any other compatible (especially for SFCB daemon based) host system.
   It returns an XML-styled response Object of all properties within the queried CIM class.
   An overview of the available CIM classes in ESXi and more information can be found here: 
-  http://pubs.vmware.com/vsphere-55/index.jsp#nav/7_0_2_1_1
+  http://pubs.vmware.com/vsphere-55/nav/7_0_2_1_1
   https://www.vmware.com/support/developer/cim-sdk/
 
 .PARAMETER Target
