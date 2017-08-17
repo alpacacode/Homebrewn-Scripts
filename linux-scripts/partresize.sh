@@ -95,7 +95,7 @@ resizefs_systemd() {
   # Resize the filesystem using a script called by a temporary systemd service file if the OS runs with systemd.
   echo "#Cleanup systemd autostart script again.
 systemctl disable fsresize.service
-rm -f /etc/systemd/system/fsresize.service" >> /root/fsresize.sh
+rm -f /etc/systemd/system/fsresize.service /root/fsresize.sh" >> /root/fsresize.sh
 
   echo "[Unit]
 Description=Filesystem resize script for LVM volume $l
